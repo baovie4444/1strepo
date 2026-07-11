@@ -42,9 +42,30 @@ try {
     'Trung ương 13 mở mặt trận ngoại giao',
     'Tổng tiến công và nổi dậy Tết Mậu Thân',
   ];
+  await playerOne.waitForTimeout(500);
+  await playerOne.evaluate(() => {
+    window.__qaStableGameView = document.querySelector('[data-testid="game-view"]');
+  });
   for (const label of correctOrder) await clickOption(playerOne, label);
+  const selectionStability = await playerOne.evaluate(() => ({
+    sameNode: window.__qaStableGameView === document.querySelector('[data-testid="game-view"]'),
+    viewAnimations: document.querySelector('.view')?.getAnimations()
+      .filter((animation) => animation.playState === 'running').length || 0,
+  }));
+  if (!selectionStability.sameNode || selectionStability.viewAnimations !== 0) {
+    throw new Error('Selecting answers recreated or reanimated the entire game view.');
+  }
   await playerOne.screenshot({ path: 'output/web-game/qa-order-selection.png' });
   await playerOne.getByTestId('submit-answer').click();
+  await playerOne.getByText('Đáp án đã được khóa', { exact: true }).waitFor();
+  const submitStability = await playerOne.evaluate(() => ({
+    stableClass: document.querySelector('.view')?.classList.contains('view-stable') || false,
+    viewAnimations: document.querySelector('.view')?.getAnimations()
+      .filter((animation) => animation.playState === 'running').length || 0,
+  }));
+  if (!submitStability.stableClass || submitStability.viewAnimations !== 0) {
+    throw new Error('Submitting an answer reanimated the entire game view.');
+  }
 
   const wrongOrder = [correctOrder[1], correctOrder[0], ...correctOrder.slice(2)];
   for (const label of wrongOrder) await clickOption(playerTwo, label);

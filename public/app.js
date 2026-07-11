@@ -11,6 +11,7 @@ window.__gameSocketTest = {
 };
 
 const SESSION_KEY = "mat-lenh-session-v1";
+let lastRenderIdentity = null;
 
 const state = {
   role: null,
@@ -121,6 +122,33 @@ function updateConnectionStatus() {
   connectionStatus.innerHTML = `<i></i>${state.connected ? "Đã kết nối" : "Mất kết nối"}`;
 }
 
+function commitView(markup, identity) {
+  const sameView = identity === lastRenderIdentity;
+  const scrollPositions = sameView ? {
+    question: app.querySelector(".question-stage")?.scrollTop || 0,
+    leaderboard: app.querySelector(".leaderboard")?.scrollTop || 0,
+    players: app.querySelector(".player-list")?.scrollTop || 0
+  } : null;
+  const focusedOptionId = sameView ? document.activeElement?.dataset?.optionId || null : null;
+
+  app.innerHTML = markup;
+  lastRenderIdentity = identity;
+
+  if (!sameView) return;
+  app.querySelector(".view")?.classList.add("view-stable");
+  const questionStage = app.querySelector(".question-stage");
+  const leaderboard = app.querySelector(".leaderboard");
+  const playerList = app.querySelector(".player-list");
+  if (questionStage) questionStage.scrollTop = scrollPositions.question;
+  if (leaderboard) leaderboard.scrollTop = scrollPositions.leaderboard;
+  if (playerList) playerList.scrollTop = scrollPositions.players;
+  if (focusedOptionId) {
+    const focusedOption = [...app.querySelectorAll("[data-option-id]")]
+      .find((option) => option.dataset.optionId === focusedOptionId);
+    focusedOption?.focus({ preventScroll: true });
+  }
+}
+
 function render() {
   if (!state.room || !state.role) {
     renderHome();
@@ -142,7 +170,7 @@ function render() {
 }
 
 function renderHome() {
-  app.innerHTML = `
+  commitView(`
     <section class="view home-view" data-testid="home-view">
       <div class="hero-copy">
         <div class="eyebrow">Trò chơi lịch sử thời gian thực</div>
@@ -182,7 +210,7 @@ function renderHome() {
           <button class="secondary-button wide-button" type="submit" data-testid="join-room">Vào phòng</button>
         </form>
       </div>
-    </section>`;
+    </section>`, "home");
 }
 
 function renderRoomBanner(title, subtitle) {
@@ -208,7 +236,7 @@ function renderHostLobby() {
       <button class="remove-player" type="button" data-action="remove-player" data-player-id="${escapeHtml(player.id)}" title="Xóa người chơi">Xóa</button>
     </div>`).join("");
 
-  app.innerHTML = `
+  commitView(`
     <section class="view shell-view" data-testid="host-lobby">
       ${renderRoomBanner("Phòng đã sẵn sàng", "Bàn điều phối của người tổ chức")}
       <div class="lobby-layout">
@@ -228,11 +256,11 @@ function renderHostLobby() {
           <button class="primary-button wide-button" type="button" data-action="host-start" data-testid="start-game" ${state.room.connectedCount < 1 ? "disabled" : ""}>Bắt đầu nhiệm vụ</button>
         </aside>
       </div>
-    </section>`;
+    </section>`, "host-lobby");
 }
 
 function renderPlayerLobby() {
-  app.innerHTML = `
+  commitView(`
     <section class="view waiting-view" data-testid="player-lobby">
       <div class="waiting-panel">
         <div class="eyebrow" style="justify-content:center">Đã vào phòng</div>
@@ -242,7 +270,7 @@ function renderPlayerLobby() {
         <div class="waiting-count">${state.room.playerCount} người chơi đã tham gia</div>
         <p style="font-size:14px">${state.room.hostOnline ? "Người tổ chức đang trực tuyến." : "Người tổ chức mất kết nối; phòng sẽ tiếp tục khi họ quay lại."}</p>
       </div>
-    </section>`;
+    </section>`, "player-lobby");
 }
 
 function selectedAnswerIds() {
@@ -323,6 +351,21 @@ function renderQuestionActions() {
     </div>`;
 }
 
+function updateAnswerSelectionUI() {
+  if (!state.room?.question || state.room.status !== "question") return render();
+  const type = state.room.question.type;
+  for (const option of app.querySelectorAll("[data-option-id]")) {
+    const selectedIndex = state.selection.indexOf(option.dataset.optionId);
+    option.classList.toggle("selected", selectedIndex >= 0);
+    if (type === "order") {
+      const key = option.querySelector(".option-key");
+      if (key) key.textContent = selectedIndex >= 0 ? String(selectedIndex + 1) : "•";
+    }
+  }
+  const actions = app.querySelector(".answer-actions");
+  if (actions) actions.innerHTML = renderQuestionActions();
+}
+
 function renderReveal() {
   if (state.room.status !== "reveal" || !state.room.reveal) return "";
   const result = state.room.me?.lastResult;
@@ -342,7 +385,7 @@ function renderGame() {
   const interactive = state.role === "player" && room.status === "question" && !room.me?.answered;
   const progress = room.playerCount ? Math.round((room.answeredCount / room.playerCount) * 100) : 0;
 
-  app.innerHTML = `
+  commitView(`
     <section class="view shell-view" data-testid="game-view">
       ${renderRoomBanner(question.roundTitle, `Vòng ${question.round} · Câu ${question.index}/${question.total}`)}
       <div class="game-layout">
@@ -362,14 +405,14 @@ function renderGame() {
           <div class="leaderboard">${renderLeaderboard()}</div>
         </aside>
       </div>
-    </section>`;
+    </section>`, `game:${question.id}`);
   updateTimer();
 }
 
 function renderFinal() {
   const board = state.room.leaderboard;
   const top = [board[1], board[0], board[2]];
-  app.innerHTML = `
+  commitView(`
     <section class="view shell-view" data-testid="final-view">
       ${renderRoomBanner("Nhiệm vụ hoàn tất", "Kết quả chung cuộc")}
       <div class="final-layout">
@@ -387,7 +430,7 @@ function renderFinal() {
           <button class="primary-button wide-button" style="margin-top:22px" type="button" data-action="new-session">${state.role === "host" ? "Tạo phòng mới" : "Rời phòng"}</button>
         </aside>
       </div>
-    </section>`;
+    </section>`, "final");
 }
 
 app.addEventListener("submit", async (event) => {
@@ -418,7 +461,7 @@ app.addEventListener("click", async (event) => {
     if (type === "single") state.selection = [id];
     else if (type === "multi") state.selection = state.selection.includes(id) ? state.selection.filter((value) => value !== id) : [...state.selection, id];
     else if (type === "order") state.selection = state.selection.includes(id) ? state.selection.filter((value) => value !== id) : [...state.selection, id];
-    render();
+    updateAnswerSelectionUI();
     return;
   }
 
@@ -443,7 +486,7 @@ app.addEventListener("click", async (event) => {
     const response = await emitWithAck("host:remove-player", { playerId: actionTarget.dataset.playerId });
     if (!response.ok) showToast(response.error);
   }
-  if (action === "clear-order") { state.selection = []; render(); }
+  if (action === "clear-order") { state.selection = []; updateAnswerSelectionUI(); }
   if (action === "submit-answer") submitAnswer();
   if (action === "new-session") { clearSession(); location.reload(); }
 });
@@ -458,11 +501,11 @@ async function submitAnswer() {
   const question = state.room.question;
   const answer = question.type === "single" ? state.selection[0] : [...state.selection];
   state.isSubmitting = true;
-  render();
+  updateAnswerSelectionUI();
   const response = await emitWithAck("player:answer", { answer });
   if (!response.ok) {
     state.isSubmitting = false;
-    render();
+    updateAnswerSelectionUI();
     showToast(response.error);
   }
 }
