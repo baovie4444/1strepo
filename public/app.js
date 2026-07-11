@@ -91,6 +91,7 @@ socket.on("disconnect", () => {
 });
 
 socket.on("room:state", (room) => {
+  const previousRoom = state.room;
   const nextQuestionId = room.question?.id || null;
   if (nextQuestionId !== state.lastQuestionId) {
     state.selection = [];
@@ -101,7 +102,12 @@ socket.on("room:state", (room) => {
   }
   state.room = room;
   state.isSubmitting = false;
-  render();
+  const canPatchCurrentQuestion = previousRoom?.status === "question"
+    && room.status === "question"
+    && previousRoom.question?.id === room.question?.id
+    && app.querySelector('[data-testid="game-view"]');
+  if (canPatchCurrentQuestion) updateLiveQuestionUI();
+  else render();
 });
 
 socket.on("session:removed", () => {
@@ -342,11 +348,17 @@ function renderQuestionActions() {
   }
 
   if (state.room.status === "reveal") return `<span class="selection-hint">Đang chờ người tổ chức chuyển câu.</span>`;
-  if (state.room.me?.answered) return `<span class="locked-answer">Đáp án đã được khóa</span>`;
+  const answered = Boolean(state.room.me?.answered);
+  const questionType = state.room.question.type;
+  const hint = questionType === "order"
+    ? "Bấm theo đúng thứ tự; bấm lại để bỏ."
+    : questionType === "multi"
+      ? "Có thể có nhiều đáp án đúng."
+      : "Chọn một đáp án.";
   return `
-    <span class="selection-hint">${state.room.question.type === "order" ? "Bấm theo đúng thứ tự; bấm lại để bỏ." : state.room.question.type === "multi" ? "Có thể có nhiều đáp án đúng." : "Chọn một đáp án."}</span>
-    <div style="display:flex;gap:10px">
-      ${state.room.question.type === "order" && state.selection.length ? `<button class="secondary-button" type="button" data-action="clear-order">Xóa thứ tự</button>` : ""}
+    <span class="action-message ${answered ? "locked-answer" : "selection-hint"}">${answered ? "Đáp án đã được khóa" : hint}</span>
+    <div class="answer-controls ${answered ? "is-hidden" : ""}">
+      ${questionType === "order" ? `<button class="secondary-button clear-order-button ${state.selection.length ? "" : "is-invisible"}" type="button" data-action="clear-order" tabindex="${state.selection.length ? "0" : "-1"}">Xóa thứ tự</button>` : ""}
       <button class="primary-button" type="button" data-action="submit-answer" data-testid="submit-answer" ${canSubmitAnswer() ? "" : "disabled"}>Gửi đáp án</button>
     </div>`;
 }
@@ -357,13 +369,50 @@ function updateAnswerSelectionUI() {
   for (const option of app.querySelectorAll("[data-option-id]")) {
     const selectedIndex = state.selection.indexOf(option.dataset.optionId);
     option.classList.toggle("selected", selectedIndex >= 0);
+    option.disabled = state.role !== "player" || state.room.me?.answered || state.isSubmitting;
     if (type === "order") {
       const key = option.querySelector(".option-key");
       if (key) key.textContent = selectedIndex >= 0 ? String(selectedIndex + 1) : "•";
     }
   }
   const actions = app.querySelector(".answer-actions");
-  if (actions) actions.innerHTML = renderQuestionActions();
+  if (!actions || state.role !== "player") return;
+
+  const answered = Boolean(state.room.me?.answered);
+  const message = actions.querySelector(".action-message");
+  const controls = actions.querySelector(".answer-controls");
+  const clearOrderButton = actions.querySelector(".clear-order-button");
+  const submitButton = actions.querySelector('[data-action="submit-answer"]');
+
+  if (message) {
+    message.classList.toggle("selection-hint", !answered);
+    message.classList.toggle("locked-answer", answered);
+    if (answered) message.textContent = "Đáp án đã được khóa";
+  }
+  controls?.classList.toggle("is-hidden", answered);
+  if (clearOrderButton) {
+    const showClear = !answered && state.selection.length > 0;
+    clearOrderButton.classList.toggle("is-invisible", !showClear);
+    clearOrderButton.tabIndex = showClear ? 0 : -1;
+  }
+  if (submitButton) submitButton.disabled = !canSubmitAnswer();
+}
+
+function updateLiveQuestionUI() {
+  if (!state.room?.question || state.room.status !== "question") return render();
+  const progress = state.room.playerCount
+    ? Math.round((state.room.answeredCount / state.room.playerCount) * 100)
+    : 0;
+  const progressNumber = app.querySelector(".answer-progress strong");
+  const progressBar = app.querySelector(".progress-track i");
+  const leaderboard = app.querySelector(".leaderboard");
+  if (progressNumber) {
+    progressNumber.innerHTML = `${state.room.answeredCount}<small style="font-size:20px;color:#aaa">/${state.room.playerCount}</small>`;
+  }
+  if (progressBar) progressBar.style.width = `${progress}%`;
+  if (leaderboard) leaderboard.innerHTML = renderLeaderboard();
+  updateAnswerSelectionUI();
+  updateTimer();
 }
 
 function renderReveal() {
@@ -624,3 +673,4 @@ resizeCanvas();
 requestAnimationFrame(animateCanvas);
 updateConnectionStatus();
 render();
+
