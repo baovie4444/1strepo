@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: mat-lenh-thong-nhat
+    runtime: node
+    plan: free
+    region: singapore
+    branch: mat-lenh-thong-nhat
+    numInstances: 1
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
