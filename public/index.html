@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Mật lệnh Thống nhất - trò chơi lịch sử nhiều người về cách mạng Việt Nam 1965-1975." />
+  <title>Mật lệnh Thống nhất 1965-1975</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <canvas id="atmosphere" aria-hidden="true"></canvas>
+
+  <div id="desktop-only" role="status">
+    <div class="desktop-notice">
+      <span class="mini-rule"></span>
+      <strong>Trò chơi hiện hỗ trợ màn hình máy tính</strong>
+      <p>Vui lòng mở trang ở kích thước tối thiểu 1024 × 700.</p>
+    </div>
+  </div>
+
+  <header class="site-header">
+    <button class="brand" type="button" data-action="home" aria-label="Về trang chủ">
+      <span class="brand-mark">MT</span>
+      <span><b>Mật lệnh Thống nhất</b><small>1965-1975</small></span>
+    </button>
+    <div class="header-actions">
+      <span id="connection-status" class="connection-status"><i></i> Đang kết nối</span>
+      <button class="text-button" type="button" data-action="fullscreen" title="Toàn màn hình (F)">Toàn màn hình</button>
+    </div>
+  </header>
+
+  <main id="app" aria-live="polite"></main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
