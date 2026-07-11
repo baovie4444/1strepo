@@ -1,0 +1,24 @@
+{
+  "name": "mat-lenh-thong-nhat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Trò chơi web nhiều người về lịch sử Việt Nam 1965-1975",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "test:e2e": "node tests/e2e-runner.mjs"
+  },
+  "engines": {
+    "node": "20.x"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "playwright": "^1.55.1",
+    "socket.io-client": "^4.8.1"
+  }
+}
