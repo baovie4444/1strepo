@@ -36,7 +36,10 @@ app.get("/health", (_req, res) => {
 });
 app.use(express.static(path.join(__dirname, "public"), {
   etag: true,
-  maxAge: process.env.NODE_ENV === "production" ? "1h" : 0
+  maxAge: 0,
+  setHeaders: (res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  }
 }));
 
 function newPlayer(name, socket) {
@@ -412,3 +415,4 @@ if (require.main === module) {
 }
 
 module.exports = { app, server, rooms };
+
