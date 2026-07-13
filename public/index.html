@@ -4,10 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Mật lệnh Thống nhất - trò chơi lịch sử nhiều người về cách mạng Việt Nam 1965-1975." />
-  <meta name="app-build" content="20260711-3" />
+  <meta name="app-build" content="20260713-4" />
   <title>Mật lệnh Thống nhất 1965-1975</title>
-  <link rel="icon" href="/favicon.svg?v=20260711-3" type="image/svg+xml" />
-  <link rel="stylesheet" href="/styles.css?v=20260711-3" />
+  <link rel="icon" href="/favicon.svg?v=20260713-4" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css?v=20260713-4" />
 </head>
 <body>
   <canvas id="atmosphere" aria-hidden="true"></canvas>
@@ -26,6 +26,10 @@
       <span><b>Mật lệnh Thống nhất</b><small>1965-1975</small></span>
     </button>
     <div class="header-actions">
+      <button id="music-toggle" class="music-toggle" type="button" aria-pressed="false" data-testid="host-music-toggle" title="Bật nhạc nền cho Người tổ chức">
+        <span class="music-glyph" aria-hidden="true">♫</span>
+        <span data-music-label>Bật nhạc</span>
+      </button>
       <span id="connection-status" class="connection-status"><i></i> Đang kết nối</span>
       <button class="text-button" type="button" data-action="fullscreen" title="Toàn màn hình (F)">Toàn màn hình</button>
     </div>
@@ -35,7 +39,6 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/app.js?v=20260711-3"></script>
+  <script src="/app.js?v=20260713-4"></script>
 </body>
 </html>
-

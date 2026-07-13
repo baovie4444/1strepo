@@ -24,6 +24,23 @@ try {
 
   const playerOne = await joinPlayer('Minh Anh QA');
   const playerTwo = await joinPlayer('Hoàng QA');
+
+  const hostAudio = JSON.parse(await host.evaluate(() => window.render_game_to_text())).audio;
+  const playerAudio = JSON.parse(await playerOne.evaluate(() => window.render_game_to_text())).audio;
+  if (!hostAudio.available || !hostAudio.enabled || playerAudio.available || playerAudio.enabled) {
+    throw new Error('Host-only music availability is incorrect.');
+  }
+  if (!await host.getByTestId('host-music-toggle').isVisible() || await playerOne.getByTestId('host-music-toggle').isVisible()) {
+    throw new Error('Host music control visibility is incorrect.');
+  }
+  await host.getByTestId('host-music-toggle').click();
+  const mutedAudio = JSON.parse(await host.evaluate(() => window.render_game_to_text())).audio;
+  if (mutedAudio.enabled || mutedAudio.playing) throw new Error('Host music did not mute.');
+  await host.getByTestId('host-music-toggle').click();
+  const resumedAudio = JSON.parse(await host.evaluate(() => window.render_game_to_text())).audio;
+  if (!resumedAudio.enabled) throw new Error('Host music did not resume.');
+  await host.screenshot({ path: 'output/web-game/qa-host-music.png' });
+
   await host.getByTestId('start-game').click();
 
   for (let index = 0; index < 3; index += 1) {
@@ -59,12 +76,13 @@ try {
   await playerOne.getByTestId('submit-answer').click();
   await playerOne.getByText('Đáp án đã được khóa', { exact: true }).waitFor();
   const submitStability = await playerOne.evaluate(() => ({
+    sameNode: window.__qaStableGameView === document.querySelector('[data-testid="game-view"]'),
     stableClass: document.querySelector('.view')?.classList.contains('view-stable') || false,
     viewAnimations: document.querySelector('.view')?.getAnimations()
       .filter((animation) => animation.playState === 'running').length || 0,
   }));
-  if (!submitStability.stableClass || submitStability.viewAnimations !== 0) {
-    throw new Error('Submitting an answer reanimated the entire game view.');
+  if (!submitStability.sameNode || submitStability.viewAnimations !== 0) {
+    throw new Error('Submitting an answer recreated or reanimated the entire game view.');
   }
 
   const wrongOrder = [correctOrder[1], correctOrder[0], ...correctOrder.slice(2)];

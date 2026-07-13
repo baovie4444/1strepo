@@ -2,6 +2,7 @@ const socket = io({ transports: ["websocket", "polling"] });
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
 const connectionStatus = document.querySelector("#connection-status");
+const musicToggle = document.querySelector("#music-toggle");
 const canvas = document.querySelector("#atmosphere");
 const ctx = canvas.getContext("2d");
 
@@ -11,7 +12,16 @@ window.__gameSocketTest = {
 };
 
 const SESSION_KEY = "mat-lenh-session-v1";
+const MUSIC_KEY = "mat-lenh-host-music-v1";
 let lastRenderIdentity = null;
+
+let musicContext = null;
+let musicMaster = null;
+let musicScheduler = null;
+let musicSuspendTimer = null;
+let musicNextNoteAt = 0;
+let musicStep = 0;
+const activeMusicNodes = new Set();
 
 const state = {
   role: null,
@@ -20,8 +30,141 @@ const state = {
   isSubmitting: false,
   connected: false,
   canvasTime: 0,
-  lastQuestionId: null
+  lastQuestionId: null,
+  musicEnabled: localStorage.getItem(MUSIC_KEY) !== "off",
+  musicPlaying: false
 };
+
+const MUSIC_PHRASES = [
+  [146.83, 174.61, 220.00],
+  [130.81, 164.81, 196.00],
+  [116.54, 146.83, 174.61],
+  [130.81, 174.61, 220.00]
+];
+
+function createMusicContext() {
+  if (musicContext) return musicContext;
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return null;
+  musicContext = new AudioContext();
+  musicMaster = musicContext.createGain();
+  musicMaster.gain.value = 0.0001;
+  musicMaster.connect(musicContext.destination);
+  return musicContext;
+}
+
+function scheduleMusicTone(frequency, when, duration, volume, type = "sine") {
+  if (!musicContext || !musicMaster) return;
+  const oscillator = musicContext.createOscillator();
+  const filter = musicContext.createBiquadFilter();
+  const envelope = musicContext.createGain();
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(frequency, when);
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(type === "sine" ? 720 : 1050, when);
+  filter.Q.setValueAtTime(0.8, when);
+  envelope.gain.setValueAtTime(0.0001, when);
+  envelope.gain.exponentialRampToValueAtTime(volume, when + 0.18);
+  envelope.gain.exponentialRampToValueAtTime(0.0001, when + duration);
+  oscillator.connect(filter);
+  filter.connect(envelope);
+  envelope.connect(musicMaster);
+  oscillator.start(when);
+  oscillator.stop(when + duration + 0.08);
+  activeMusicNodes.add(oscillator);
+  oscillator.addEventListener("ended", () => activeMusicNodes.delete(oscillator), { once: true });
+}
+
+function scheduleHostMusic() {
+  if (!musicContext || musicContext.state !== "running" || !state.musicPlaying) return;
+  const isQuestion = state.room?.status === "question";
+  const interval = isQuestion ? 2.35 : 3.8;
+  const horizon = musicContext.currentTime + 7;
+  while (musicNextNoteAt < horizon) {
+    const phrase = MUSIC_PHRASES[musicStep % MUSIC_PHRASES.length];
+    const note = phrase[musicStep % phrase.length];
+    scheduleMusicTone(phrase[0] / 2, musicNextNoteAt, interval * 1.7, isQuestion ? 0.022 : 0.017, "sine");
+    scheduleMusicTone(note * 2, musicNextNoteAt + 0.12, interval * 1.15, isQuestion ? 0.012 : 0.009, "triangle");
+    if (isQuestion && musicStep % 2 === 1) {
+      scheduleMusicTone(phrase[2] * 2, musicNextNoteAt + interval * 0.52, interval * 0.62, 0.006, "sine");
+    }
+    musicNextNoteAt += interval;
+    musicStep += 1;
+  }
+}
+
+function updateMusicButton() {
+  const isHost = state.role === "host" && Boolean(state.room);
+  const isPlaying = isHost && state.musicPlaying && musicContext?.state === "running";
+  musicToggle.classList.toggle("is-visible", isHost);
+  musicToggle.classList.toggle("is-playing", isPlaying);
+  musicToggle.setAttribute("aria-pressed", String(isPlaying));
+  const label = musicToggle.querySelector("[data-music-label]");
+  if (label) label.textContent = isPlaying ? "Nhạc: Bật" : state.musicEnabled ? "Bật nhạc" : "Nhạc: Tắt";
+  musicToggle.title = isPlaying ? "Tắt nhạc nền" : "Bật nhạc nền cho Người tổ chức";
+}
+
+async function startHostMusic() {
+  if (state.role !== "host" || !state.musicEnabled) return updateMusicButton();
+  clearTimeout(musicSuspendTimer);
+  musicSuspendTimer = null;
+  const context = createMusicContext();
+  if (!context) return updateMusicButton();
+  try { await context.resume(); } catch { /* Browser requires another explicit click. */ }
+  if (context.state !== "running") return updateMusicButton();
+  if (!state.musicPlaying) {
+    state.musicPlaying = true;
+    musicNextNoteAt = context.currentTime + 0.06;
+    musicMaster.gain.cancelScheduledValues(context.currentTime);
+    musicMaster.gain.setValueAtTime(Math.max(0.0001, musicMaster.gain.value), context.currentTime);
+    musicMaster.gain.exponentialRampToValueAtTime(0.42, context.currentTime + 0.7);
+    scheduleHostMusic();
+    musicScheduler = setInterval(scheduleHostMusic, 1200);
+  }
+  updateMusicButton();
+}
+
+function stopHostMusic({ suspend = false } = {}) {
+  state.musicPlaying = false;
+  clearInterval(musicScheduler);
+  musicScheduler = null;
+  for (const oscillator of activeMusicNodes) {
+    try { oscillator.stop(); } catch { /* The note already ended. */ }
+  }
+  activeMusicNodes.clear();
+  if (musicContext && musicMaster) {
+    const now = musicContext.currentTime;
+    musicMaster.gain.cancelScheduledValues(now);
+    musicMaster.gain.setValueAtTime(Math.max(0.0001, musicMaster.gain.value), now);
+    musicMaster.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+    if (suspend) {
+      clearTimeout(musicSuspendTimer);
+      musicSuspendTimer = setTimeout(() => {
+        if (!state.musicPlaying) musicContext?.suspend();
+      }, 320);
+    }
+  }
+  updateMusicButton();
+}
+
+function primeHostMusic() {
+  if (!state.musicEnabled) return;
+  const context = createMusicContext();
+  context?.resume().catch(() => {});
+}
+
+async function toggleHostMusic() {
+  if (state.role !== "host") return;
+  if (state.musicPlaying) {
+    state.musicEnabled = false;
+    localStorage.setItem(MUSIC_KEY, "off");
+    stopHostMusic({ suspend: true });
+  } else {
+    state.musicEnabled = true;
+    localStorage.setItem(MUSIC_KEY, "on");
+    await startHostMusic();
+  }
+}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -47,6 +190,7 @@ function clearSession() {
   state.room = null;
   state.selection = [];
   state.lastQuestionId = null;
+  stopHostMusic({ suspend: true });
 }
 
 let toastTimer;
@@ -82,6 +226,7 @@ socket.on("connect", async () => {
     showToast(response.error || "Phiên chơi đã kết thúc.");
   } else {
     state.role = session.role;
+    updateMusicButton();
   }
 });
 
@@ -102,6 +247,7 @@ socket.on("room:state", (room) => {
   }
   state.room = room;
   state.isSubmitting = false;
+  updateMusicButton();
   const canPatchCurrentQuestion = previousRoom?.status === "question"
     && room.status === "question"
     && previousRoom.question?.id === room.question?.id
@@ -156,6 +302,7 @@ function commitView(markup, identity) {
 }
 
 function render() {
+  updateMusicButton();
   if (!state.room || !state.role) {
     renderHome();
     return;
@@ -486,11 +633,13 @@ app.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.target;
   if (form.id === "create-form") {
+    primeHostMusic();
     const hostName = new FormData(form).get("hostName");
     const response = await emitWithAck("host:create", { hostName });
     if (!response.ok) return showToast(response.error);
     state.role = "host";
     saveSession({ role: "host", code: response.code, token: response.hostToken });
+    await startHostMusic();
     showToast(`Đã tạo phòng ${response.code}`);
   }
   if (form.id === "join-form") {
@@ -541,6 +690,7 @@ app.addEventListener("click", async (event) => {
 });
 
 async function handleHostAction(event) {
+  if (state.musicEnabled) await startHostMusic();
   const response = await emitWithAck(event);
   if (!response.ok) showToast(response.error);
 }
@@ -579,7 +729,10 @@ function toggleFullscreen() {
 document.addEventListener("keydown", (event) => {
   const tag = document.activeElement?.tagName;
   if (event.key.toLowerCase() === "f" && tag !== "INPUT" && tag !== "TEXTAREA") toggleFullscreen();
+  if (event.key.toLowerCase() === "m" && tag !== "INPUT" && tag !== "TEXTAREA" && state.role === "host") toggleHostMusic();
 });
+
+musicToggle.addEventListener("click", toggleHostMusic);
 
 function resizeCanvas() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -665,7 +818,12 @@ window.render_game_to_text = () => JSON.stringify({
   selectedAnswer: [...state.selection],
   me: state.room?.me ? { name: state.room.me.name, score: state.room.me.score, answered: state.room.me.answered } : null,
   leaderboard: state.room?.leaderboard?.slice(0, 8) || [],
-  controls: state.role === "host" ? ["start", "reveal", "next", "remove player", "F fullscreen"] : ["select option", "submit answer", "F fullscreen"]
+  audio: {
+    available: state.role === "host",
+    enabled: state.role === "host" && state.musicEnabled,
+    playing: state.role === "host" && state.musicPlaying && musicContext?.state === "running"
+  },
+  controls: state.role === "host" ? ["start", "reveal", "next", "remove player", "M music", "F fullscreen"] : ["select option", "submit answer", "F fullscreen"]
 });
 
 window.addEventListener("resize", resizeCanvas);
@@ -673,4 +831,3 @@ resizeCanvas();
 requestAnimationFrame(animateCanvas);
 updateConnectionStatus();
 render();
-

@@ -87,11 +87,33 @@ button { color: inherit; }
 .brand b { display: block; font-size: 16px; letter-spacing: .25px; }
 .brand small { display: block; margin-top: 2px; color: #aaa59c; font-size: 12px; letter-spacing: 1.4px; }
 
-.header-actions { display: flex; align-items: center; gap: 24px; }
+.header-actions { display: flex; align-items: center; gap: 20px; }
 .connection-status { color: #bbb6ad; font-size: 13px; }
 .connection-status i { display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--gold); }
 .connection-status.online i { background: #68bb8d; box-shadow: 0 0 0 5px rgba(104,187,141,.12); }
 .connection-status.offline i { background: #e47777; }
+
+.music-toggle {
+  min-height: 34px;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid rgba(214,168,63,.34);
+  border-radius: 999px;
+  color: #d8d2c8;
+  background: rgba(255,255,255,.035);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: color .18s, border-color .18s, background .18s;
+}
+.music-toggle.is-visible { display: inline-flex; }
+.music-toggle:hover { color: white; border-color: rgba(214,168,63,.68); background: rgba(255,255,255,.07); }
+.music-toggle.is-playing { color: #f5cf78; border-color: rgba(214,168,63,.72); background: rgba(214,168,63,.09); }
+.music-glyph { width: 16px; color: var(--gold); font-size: 16px; line-height: 1; text-align: center; }
+.music-toggle.is-playing .music-glyph { animation: music-pulse 1.8s ease-in-out infinite; }
+@keyframes music-pulse { 0%, 100% { opacity: .68; } 50% { opacity: 1; } }
 
 .text-button {
   padding: 9px 0;
@@ -413,4 +435,3 @@ h1, h2, h3, p { margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
-
