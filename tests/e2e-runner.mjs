@@ -37,8 +37,10 @@ try {
   const mutedAudio = JSON.parse(await host.evaluate(() => window.render_game_to_text())).audio;
   if (mutedAudio.enabled || mutedAudio.playing) throw new Error('Host music did not mute.');
   await host.getByTestId('host-music-toggle').click();
+  await host.waitForTimeout(650);
   const resumedAudio = JSON.parse(await host.evaluate(() => window.render_game_to_text())).audio;
   if (!resumedAudio.enabled) throw new Error('Host music did not resume.');
+  if (resumedAudio.signalLevel < 0.01) throw new Error(`Host music signal is too quiet: ${resumedAudio.signalLevel}`);
   await host.screenshot({ path: 'output/web-game/qa-host-music.png' });
 
   await host.getByTestId('start-game').click();
@@ -144,6 +146,7 @@ try {
 
   const result = {
     roomCode: code,
+    hostMusicSignal: resumedAudio.signalLevel,
     networkReconnectScore: afterNetworkReconnect.me.score,
     reconnectScore: afterReload.me.score,
     finalScore: finalState.me.score,

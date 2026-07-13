@@ -17,6 +17,8 @@ let lastRenderIdentity = null;
 
 let musicContext = null;
 let musicMaster = null;
+let musicCompressor = null;
+let musicAnalyser = null;
 let musicScheduler = null;
 let musicSuspendTimer = null;
 let musicNextNoteAt = 0;
@@ -48,8 +50,19 @@ function createMusicContext() {
   if (!AudioContext) return null;
   musicContext = new AudioContext();
   musicMaster = musicContext.createGain();
+  musicCompressor = musicContext.createDynamicsCompressor();
+  musicAnalyser = musicContext.createAnalyser();
   musicMaster.gain.value = 0.0001;
-  musicMaster.connect(musicContext.destination);
+  musicCompressor.threshold.value = -20;
+  musicCompressor.knee.value = 12;
+  musicCompressor.ratio.value = 3.5;
+  musicCompressor.attack.value = 0.02;
+  musicCompressor.release.value = 0.25;
+  musicAnalyser.fftSize = 256;
+  musicAnalyser.smoothingTimeConstant = 0.6;
+  musicMaster.connect(musicAnalyser);
+  musicAnalyser.connect(musicCompressor);
+  musicCompressor.connect(musicContext.destination);
   return musicContext;
 }
 
@@ -61,7 +74,7 @@ function scheduleMusicTone(frequency, when, duration, volume, type = "sine") {
   oscillator.type = type;
   oscillator.frequency.setValueAtTime(frequency, when);
   filter.type = "lowpass";
-  filter.frequency.setValueAtTime(type === "sine" ? 720 : 1050, when);
+  filter.frequency.setValueAtTime(type === "sine" ? 920 : 1500, when);
   filter.Q.setValueAtTime(0.8, when);
   envelope.gain.setValueAtTime(0.0001, when);
   envelope.gain.exponentialRampToValueAtTime(volume, when + 0.18);
@@ -78,19 +91,29 @@ function scheduleMusicTone(frequency, when, duration, volume, type = "sine") {
 function scheduleHostMusic() {
   if (!musicContext || musicContext.state !== "running" || !state.musicPlaying) return;
   const isQuestion = state.room?.status === "question";
-  const interval = isQuestion ? 2.35 : 3.8;
+  const interval = isQuestion ? 1.9 : 2.75;
   const horizon = musicContext.currentTime + 7;
   while (musicNextNoteAt < horizon) {
     const phrase = MUSIC_PHRASES[musicStep % MUSIC_PHRASES.length];
     const note = phrase[musicStep % phrase.length];
-    scheduleMusicTone(phrase[0] / 2, musicNextNoteAt, interval * 1.7, isQuestion ? 0.022 : 0.017, "sine");
-    scheduleMusicTone(note * 2, musicNextNoteAt + 0.12, interval * 1.15, isQuestion ? 0.012 : 0.009, "triangle");
+    // Keep the foundation above 110 Hz so ordinary laptop speakers can reproduce it.
+    scheduleMusicTone(phrase[0], musicNextNoteAt, interval * 1.45, isQuestion ? 0.08 : 0.06, "sine");
+    scheduleMusicTone(note * 2, musicNextNoteAt + 0.1, interval * 1.05, isQuestion ? 0.055 : 0.042, "triangle");
+    scheduleMusicTone(phrase[1] * 2, musicNextNoteAt + interval * 0.46, interval * 0.72, isQuestion ? 0.026 : 0.019, "sine");
     if (isQuestion && musicStep % 2 === 1) {
-      scheduleMusicTone(phrase[2] * 2, musicNextNoteAt + interval * 0.52, interval * 0.62, 0.006, "sine");
+      scheduleMusicTone(phrase[2] * 2, musicNextNoteAt + interval * 0.7, interval * 0.5, 0.02, "sine");
     }
     musicNextNoteAt += interval;
     musicStep += 1;
   }
+}
+
+function getMusicSignalLevel() {
+  if (!musicAnalyser || musicContext?.state !== "running" || !state.musicPlaying) return 0;
+  const samples = new Float32Array(musicAnalyser.fftSize);
+  musicAnalyser.getFloatTimeDomainData(samples);
+  const sumSquares = samples.reduce((sum, sample) => sum + sample * sample, 0);
+  return Math.sqrt(sumSquares / samples.length);
 }
 
 function updateMusicButton() {
@@ -117,7 +140,7 @@ async function startHostMusic() {
     musicNextNoteAt = context.currentTime + 0.06;
     musicMaster.gain.cancelScheduledValues(context.currentTime);
     musicMaster.gain.setValueAtTime(Math.max(0.0001, musicMaster.gain.value), context.currentTime);
-    musicMaster.gain.exponentialRampToValueAtTime(0.42, context.currentTime + 0.7);
+    musicMaster.gain.exponentialRampToValueAtTime(0.72, context.currentTime + 0.55);
     scheduleHostMusic();
     musicScheduler = setInterval(scheduleHostMusic, 1200);
   }
@@ -821,7 +844,8 @@ window.render_game_to_text = () => JSON.stringify({
   audio: {
     available: state.role === "host",
     enabled: state.role === "host" && state.musicEnabled,
-    playing: state.role === "host" && state.musicPlaying && musicContext?.state === "running"
+    playing: state.role === "host" && state.musicPlaying && musicContext?.state === "running",
+    signalLevel: state.role === "host" ? Number(getMusicSignalLevel().toFixed(4)) : 0
   },
   controls: state.role === "host" ? ["start", "reveal", "next", "remove player", "M music", "F fullscreen"] : ["select option", "submit answer", "F fullscreen"]
 });
