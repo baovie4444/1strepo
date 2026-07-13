@@ -15,15 +15,11 @@ const SESSION_KEY = "mat-lenh-session-v1";
 const MUSIC_KEY = "mat-lenh-host-music-v1";
 let lastRenderIdentity = null;
 
-let musicContext = null;
-let musicMaster = null;
-let musicCompressor = null;
-let musicAnalyser = null;
-let musicScheduler = null;
-let musicSuspendTimer = null;
-let musicNextNoteAt = 0;
-let musicStep = 0;
-const activeMusicNodes = new Set();
+const MUSIC_TRACK_URL = "/audio/calm-down.ogg?v=20260713-6";
+const musicElement = new Audio(MUSIC_TRACK_URL);
+musicElement.loop = true;
+musicElement.preload = "auto";
+musicElement.volume = 0.65;
 
 const state = {
   role: null,
@@ -37,88 +33,9 @@ const state = {
   musicPlaying: false
 };
 
-const MUSIC_PHRASES = [
-  [146.83, 174.61, 220.00],
-  [130.81, 164.81, 196.00],
-  [116.54, 146.83, 174.61],
-  [130.81, 174.61, 220.00]
-];
-
-function createMusicContext() {
-  if (musicContext) return musicContext;
-  const AudioContext = window.AudioContext || window.webkitAudioContext;
-  if (!AudioContext) return null;
-  musicContext = new AudioContext();
-  musicMaster = musicContext.createGain();
-  musicCompressor = musicContext.createDynamicsCompressor();
-  musicAnalyser = musicContext.createAnalyser();
-  musicMaster.gain.value = 0.0001;
-  musicCompressor.threshold.value = -20;
-  musicCompressor.knee.value = 12;
-  musicCompressor.ratio.value = 3.5;
-  musicCompressor.attack.value = 0.02;
-  musicCompressor.release.value = 0.25;
-  musicAnalyser.fftSize = 256;
-  musicAnalyser.smoothingTimeConstant = 0.6;
-  musicMaster.connect(musicAnalyser);
-  musicAnalyser.connect(musicCompressor);
-  musicCompressor.connect(musicContext.destination);
-  return musicContext;
-}
-
-function scheduleMusicTone(frequency, when, duration, volume, type = "sine") {
-  if (!musicContext || !musicMaster) return;
-  const oscillator = musicContext.createOscillator();
-  const filter = musicContext.createBiquadFilter();
-  const envelope = musicContext.createGain();
-  oscillator.type = type;
-  oscillator.frequency.setValueAtTime(frequency, when);
-  filter.type = "lowpass";
-  filter.frequency.setValueAtTime(type === "sine" ? 920 : 1500, when);
-  filter.Q.setValueAtTime(0.8, when);
-  envelope.gain.setValueAtTime(0.0001, when);
-  envelope.gain.exponentialRampToValueAtTime(volume, when + 0.18);
-  envelope.gain.exponentialRampToValueAtTime(0.0001, when + duration);
-  oscillator.connect(filter);
-  filter.connect(envelope);
-  envelope.connect(musicMaster);
-  oscillator.start(when);
-  oscillator.stop(when + duration + 0.08);
-  activeMusicNodes.add(oscillator);
-  oscillator.addEventListener("ended", () => activeMusicNodes.delete(oscillator), { once: true });
-}
-
-function scheduleHostMusic() {
-  if (!musicContext || musicContext.state !== "running" || !state.musicPlaying) return;
-  const isQuestion = state.room?.status === "question";
-  const interval = isQuestion ? 1.9 : 2.75;
-  const horizon = musicContext.currentTime + 7;
-  while (musicNextNoteAt < horizon) {
-    const phrase = MUSIC_PHRASES[musicStep % MUSIC_PHRASES.length];
-    const note = phrase[musicStep % phrase.length];
-    // Keep the foundation above 110 Hz so ordinary laptop speakers can reproduce it.
-    scheduleMusicTone(phrase[0], musicNextNoteAt, interval * 1.45, isQuestion ? 0.08 : 0.06, "sine");
-    scheduleMusicTone(note * 2, musicNextNoteAt + 0.1, interval * 1.05, isQuestion ? 0.055 : 0.042, "triangle");
-    scheduleMusicTone(phrase[1] * 2, musicNextNoteAt + interval * 0.46, interval * 0.72, isQuestion ? 0.026 : 0.019, "sine");
-    if (isQuestion && musicStep % 2 === 1) {
-      scheduleMusicTone(phrase[2] * 2, musicNextNoteAt + interval * 0.7, interval * 0.5, 0.02, "sine");
-    }
-    musicNextNoteAt += interval;
-    musicStep += 1;
-  }
-}
-
-function getMusicSignalLevel() {
-  if (!musicAnalyser || musicContext?.state !== "running" || !state.musicPlaying) return 0;
-  const samples = new Float32Array(musicAnalyser.fftSize);
-  musicAnalyser.getFloatTimeDomainData(samples);
-  const sumSquares = samples.reduce((sum, sample) => sum + sample * sample, 0);
-  return Math.sqrt(sumSquares / samples.length);
-}
-
 function updateMusicButton() {
   const isHost = state.role === "host" && Boolean(state.room);
-  const isPlaying = isHost && state.musicPlaying && musicContext?.state === "running";
+  const isPlaying = isHost && state.musicPlaying && !musicElement.paused && !musicElement.ended;
   musicToggle.classList.toggle("is-visible", isHost);
   musicToggle.classList.toggle("is-playing", isPlaying);
   musicToggle.setAttribute("aria-pressed", String(isPlaying));
@@ -127,53 +44,41 @@ function updateMusicButton() {
   musicToggle.title = isPlaying ? "Tắt nhạc nền" : "Bật nhạc nền cho Người tổ chức";
 }
 
+musicElement.addEventListener("playing", () => {
+  state.musicPlaying = true;
+  updateMusicButton();
+});
+musicElement.addEventListener("pause", () => {
+  state.musicPlaying = false;
+  updateMusicButton();
+});
+musicElement.addEventListener("ended", () => {
+  state.musicPlaying = false;
+  updateMusicButton();
+});
+
 async function startHostMusic() {
   if (state.role !== "host" || !state.musicEnabled) return updateMusicButton();
-  clearTimeout(musicSuspendTimer);
-  musicSuspendTimer = null;
-  const context = createMusicContext();
-  if (!context) return updateMusicButton();
-  try { await context.resume(); } catch { /* Browser requires another explicit click. */ }
-  if (context.state !== "running") return updateMusicButton();
-  if (!state.musicPlaying) {
-    state.musicPlaying = true;
-    musicNextNoteAt = context.currentTime + 0.06;
-    musicMaster.gain.cancelScheduledValues(context.currentTime);
-    musicMaster.gain.setValueAtTime(Math.max(0.0001, musicMaster.gain.value), context.currentTime);
-    musicMaster.gain.exponentialRampToValueAtTime(0.72, context.currentTime + 0.55);
-    scheduleHostMusic();
-    musicScheduler = setInterval(scheduleHostMusic, 1200);
+  try {
+    await musicElement.play();
+    state.musicPlaying = !musicElement.paused;
+  } catch {
+    state.musicPlaying = false;
+    showToast("Trình duyệt đang chặn âm thanh. Hãy bấm nút Bật nhạc.");
   }
   updateMusicButton();
 }
 
-function stopHostMusic({ suspend = false } = {}) {
+function stopHostMusic() {
   state.musicPlaying = false;
-  clearInterval(musicScheduler);
-  musicScheduler = null;
-  for (const oscillator of activeMusicNodes) {
-    try { oscillator.stop(); } catch { /* The note already ended. */ }
-  }
-  activeMusicNodes.clear();
-  if (musicContext && musicMaster) {
-    const now = musicContext.currentTime;
-    musicMaster.gain.cancelScheduledValues(now);
-    musicMaster.gain.setValueAtTime(Math.max(0.0001, musicMaster.gain.value), now);
-    musicMaster.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
-    if (suspend) {
-      clearTimeout(musicSuspendTimer);
-      musicSuspendTimer = setTimeout(() => {
-        if (!state.musicPlaying) musicContext?.suspend();
-      }, 320);
-    }
-  }
+  musicElement.pause();
   updateMusicButton();
 }
 
 function primeHostMusic() {
   if (!state.musicEnabled) return;
-  const context = createMusicContext();
-  context?.resume().catch(() => {});
+  // Start inside the submit gesture so Chrome's autoplay policy cannot defer it.
+  musicElement.play().catch(() => {});
 }
 
 async function toggleHostMusic() {
@@ -181,7 +86,7 @@ async function toggleHostMusic() {
   if (state.musicPlaying) {
     state.musicEnabled = false;
     localStorage.setItem(MUSIC_KEY, "off");
-    stopHostMusic({ suspend: true });
+    stopHostMusic();
   } else {
     state.musicEnabled = true;
     localStorage.setItem(MUSIC_KEY, "on");
@@ -213,7 +118,7 @@ function clearSession() {
   state.room = null;
   state.selection = [];
   state.lastQuestionId = null;
-  stopHostMusic({ suspend: true });
+  stopHostMusic();
 }
 
 let toastTimer;
@@ -659,7 +564,10 @@ app.addEventListener("submit", async (event) => {
     primeHostMusic();
     const hostName = new FormData(form).get("hostName");
     const response = await emitWithAck("host:create", { hostName });
-    if (!response.ok) return showToast(response.error);
+    if (!response.ok) {
+      stopHostMusic();
+      return showToast(response.error);
+    }
     state.role = "host";
     saveSession({ role: "host", code: response.code, token: response.hostToken });
     await startHostMusic();
@@ -844,8 +752,12 @@ window.render_game_to_text = () => JSON.stringify({
   audio: {
     available: state.role === "host",
     enabled: state.role === "host" && state.musicEnabled,
-    playing: state.role === "host" && state.musicPlaying && musicContext?.state === "running",
-    signalLevel: state.role === "host" ? Number(getMusicSignalLevel().toFixed(4)) : 0
+    playing: state.role === "host" && state.musicPlaying && !musicElement.paused && !musicElement.ended,
+    source: state.role === "host" ? MUSIC_TRACK_URL : null,
+    readyState: state.role === "host" ? musicElement.readyState : 0,
+    currentTime: state.role === "host" ? Number(musicElement.currentTime.toFixed(2)) : 0,
+    duration: state.role === "host" && Number.isFinite(musicElement.duration) ? Number(musicElement.duration.toFixed(2)) : null,
+    volume: state.role === "host" ? musicElement.volume : 0
   },
   controls: state.role === "host" ? ["start", "reveal", "next", "remove player", "M music", "F fullscreen"] : ["select option", "submit answer", "F fullscreen"]
 });

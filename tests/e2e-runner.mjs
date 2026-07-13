@@ -27,8 +27,11 @@ try {
 
   const hostAudio = JSON.parse(await host.evaluate(() => window.render_game_to_text())).audio;
   const playerAudio = JSON.parse(await playerOne.evaluate(() => window.render_game_to_text())).audio;
-  if (!hostAudio.available || !hostAudio.enabled || playerAudio.available || playerAudio.enabled) {
+  if (!hostAudio.available || !hostAudio.enabled || !hostAudio.playing || playerAudio.available || playerAudio.enabled) {
     throw new Error('Host-only music availability is incorrect.');
+  }
+  if (!hostAudio.source?.includes('/audio/calm-down.ogg') || hostAudio.readyState < 2 || hostAudio.volume < 0.6) {
+    throw new Error(`Downloaded music file is not ready: ${JSON.stringify(hostAudio)}`);
   }
   if (!await host.getByTestId('host-music-toggle').isVisible() || await playerOne.getByTestId('host-music-toggle').isVisible()) {
     throw new Error('Host music control visibility is incorrect.');
@@ -36,11 +39,13 @@ try {
   await host.getByTestId('host-music-toggle').click();
   const mutedAudio = JSON.parse(await host.evaluate(() => window.render_game_to_text())).audio;
   if (mutedAudio.enabled || mutedAudio.playing) throw new Error('Host music did not mute.');
+  const pausedAt = mutedAudio.currentTime;
   await host.getByTestId('host-music-toggle').click();
-  await host.waitForTimeout(650);
+  await host.waitForTimeout(900);
   const resumedAudio = JSON.parse(await host.evaluate(() => window.render_game_to_text())).audio;
-  if (!resumedAudio.enabled) throw new Error('Host music did not resume.');
-  if (resumedAudio.signalLevel < 0.01) throw new Error(`Host music signal is too quiet: ${resumedAudio.signalLevel}`);
+  if (!resumedAudio.enabled || !resumedAudio.playing || resumedAudio.currentTime <= pausedAt + 0.5) {
+    throw new Error(`Host music did not resume from the downloaded track: ${JSON.stringify(resumedAudio)}`);
+  }
   await host.screenshot({ path: 'output/web-game/qa-host-music.png' });
 
   await host.getByTestId('start-game').click();
@@ -146,7 +151,8 @@ try {
 
   const result = {
     roomCode: code,
-    hostMusicSignal: resumedAudio.signalLevel,
+    hostMusicCurrentTime: resumedAudio.currentTime,
+    hostMusicDuration: resumedAudio.duration,
     networkReconnectScore: afterNetworkReconnect.me.score,
     reconnectScore: afterReload.me.score,
     finalScore: finalState.me.score,
